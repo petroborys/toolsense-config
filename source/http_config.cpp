@@ -3,3 +3,7 @@
 #include "NetworkInterface.h"
 #include "http_request.h"
 #include "json.h"
+
+int TOOLSENCE_config::get_html_request() {
+	printf("TEST");
+}
