@@ -1,6 +1,20 @@
+#include "NetworkInterface.h"
+#include "http_request.h"
+#include "json.h"
 
+namespace mbed {
 
-class TOOLSENCE_config {
-	public:
-	int get_html_request();
+class TS_config {
+
+private:
+	NetworkInterface* network;
+	HttpRequest* get_req;
+	HttpResponse* get_res;
+
+public:
+	int connect();
+	int parcer(json_char* json_res);
+	int get_config();
 };
+
+}
