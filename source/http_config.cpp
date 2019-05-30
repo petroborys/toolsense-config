@@ -30,6 +30,8 @@ int TS_config::parcer(json_char* json_res)
 	json_value* value_res;
 	char* name_value;
 
+	uint32_t value = 0;
+
 	value_res = json_parse(get_res->get_body_as_string().c_str(), get_res->get_body_length());
 
     if (value_res == NULL) {
@@ -44,25 +46,21 @@ int TS_config::parcer(json_char* json_res)
     	printf("Name: %s\r\n", name_value);
 
 		switch (value_res->u.object.values[i].value->type) {
-				case json_none:
-						printf("none\r\n");
-						break;
 				case json_integer:
-						printf("int: %10" PRId64 "\r\n", value_res->u.object.values[i].value->u.integer);
-						break;
-				case json_double:
-						printf("double: %f\r\n", value_res->u.object.values[i].value->u.dbl);
-						break;
-				case json_string:
-						printf("string: %s\r\n", value_res->u.object.values[i].value->u.string.ptr);
+						value = (uint32_t)value_res->u.object.values[i].value->u.integer;
+						printf("int: %d\r\n", value);
 						break;
 				case json_boolean:
-						printf("bool: %d\r\n", value_res->u.object.values[i].value->u.boolean);
+						value = (uint32_t)value_res->u.object.values[i].value->u.boolean;
+						printf("bool: %d\r\n", value);
 						break;
+				default:
+						printf("Parse error: incorrect type\r\n");
+						return 1;
 		}
+
+		conf_map.date.insert ( pair<string,uint32_t> (name_value,value) );
     }
-
-
 
 //    printf("length %d\r\n", length);
 
@@ -70,11 +68,10 @@ int TS_config::parcer(json_char* json_res)
 }
 
 
-int TS_config::get_config()
+int TS_config::get_conf()
 {
-	int id = 56789;
     char url_str[256];
-    sprintf(url_str, "%s/%d", "http://192.168.1.9/get_config", id);
+    sprintf(url_str, "%s/%s/%d", server_url, "get_config", sn);
 
     get_req = new HttpRequest(network, HTTP_GET, url_str);
 
@@ -90,10 +87,129 @@ int TS_config::get_config()
     printf("\r\nBody (%d bytes):\r\n\r\n%s\r\n", get_res->get_body_length(), get_res->get_body_as_string().c_str());
 #endif
 
-    json_char* json_res;
-    json_res = (json_char*)get_res->get_body();
+    parcer((json_char*)get_res->get_body());
 
-    parcer(json_res);
+	return 0;
+}
+
+int TS_config::set_key(char* alias, uint16_t key)
+{
+	if (key == 0) {
+#ifdef DEBUG_HTML
+		printf("Incorrect key (func set_key): %s - %d\r\n", alias, key);
+#endif
+		return -1;
+	}
+	conf_map.nv_key.insert ( pair<string,int> (alias,key) );
+#ifdef DEBUG_HTML
+	printf("set_key: %s - %d\r\n", alias, key);
+#endif
+	return 0;
+}
+
+
+uint32_t TS_config::get_value(char* alias)
+{
+	uint32_t res = 0;
+	res = conf_map.date[alias];
+#ifdef DEBUG_HTML
+	printf("get_value: %s - %d\r\n", alias, res);
+#endif
+	return res;
+}
+
+int TS_config::max_keys_correct() {
+	size_t map_size = conf_map.nv_key.size();
+	size_t max_keys = nvstore.get_max_keys();
+	size_t max_possible_keys = nvstore.get_max_possible_keys();
+
+	if (map_size > max_keys) {
+		if (map_size < max_possible_keys) {
+			nvstore.set_max_keys(map_size);
+			printf("NVStore new max number of keys is %d\r\n", nvstore.get_max_keys());
+		}
+		else {
+			printf("NVStore incorrect max number of keys is %d\r\n", map_size);
+			return 1;
+		}
+	}
+
+	return 0;
+}
+
+
+int TS_config::init() {
+
+	int rc;
+	rc = nvstore.init();
+
+	if (max_keys_correct() !=0) {
+		return 1;
+	}
+
+#ifdef DEBUG_HTML
+	printf("Init NVStore.\r\n");
+    // Show NVStore size, maximum number of keys and area addresses and sizes
+    printf("NVStore size is %d.\r\n", nvstore.size());
+    printf("NVStore max number of keys is %d (out of %d possible ones in this flash configuration).\r\n",
+            nvstore.get_max_keys(), nvstore.get_max_possible_keys());
+    printf("NVStore areas:\r\n");
+    for (uint8_t area = 0; area < NVSTORE_NUM_AREAS; area++) {
+        uint32_t area_address;
+        size_t area_size;
+        nvstore.get_area_params(area, area_address, area_size);
+        printf("Area %d: address 0x%08lx, size %d (0x%x).\r\n", area, area_address, area_size, area_size);
+    }
+#endif
+
+	return 0;
+}
+
+int TS_config::reset_nvstore() {
+
+	int rc;
+	rc = nvstore.reset();
+	return rc;
+}
+
+int TS_config::save_conf_to_flesh() {
+	uint16_t key;
+	uint32_t data;
+	int rc;
+	if (max_keys_correct() !=0) {
+		return 1;
+	}
+
+	printf("\r\nIterator map:\r\n");
+	for (map <string,uint32_t> ::iterator it=conf_map.date.begin(); it!=conf_map.date.end(); ++it) {
+		key = conf_map.nv_key[it->first];
+		data = it->second;
+
+		if (key != 0) {
+			rc = nvstore.set(key, sizeof(data), &data);
+			printf("Set key %d to value %ld. \r\n", key, data);
+		}
+	}
+
+	return 0;
+}
+
+int TS_config::read_conf_from_flesh() {
+	uint16_t key;
+	uint32_t data;
+	uint16_t actual_len_bytes = 0;
+	int rc;
+
+	printf("\r\read map:\r\n");
+	for (map <string,uint16_t> ::iterator it=conf_map.nv_key.begin(); it!=conf_map.nv_key.end(); ++it) {
+		key = it->second;
+
+		if (key != 0) {
+		    rc = nvstore.get(key, sizeof(data), &data, actual_len_bytes);
+		    conf_map.date.insert (pair<string,uint32_t> (it->first, data));
+		    printf("Get key %d. Value is %ld \r\n", key, data);
+		}
+	}
 
 	return 0;
 }
