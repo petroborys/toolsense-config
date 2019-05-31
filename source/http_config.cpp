@@ -1,6 +1,6 @@
 #include "http_config.h"
 
-//#define DEBUG_HTML
+#define DEBUG_HTML
 
 int TS_config::connect()
 {
@@ -10,19 +10,33 @@ int TS_config::connect()
 
 	network = NetworkInterface::get_default_instance();
 
-    int status_err = network->connect();
+    int rc = network->connect();
 
-    if (status_err != 0) {
-#ifdef DEBUG_HTML
-        printf("Cannot connect to the network (error code %d)\r\n", status_err);
-#endif
-        return status_err;
+    if (rc != 0) {
+        printf("Cannot connect to the network (error code %d)\r\n", rc);
+        return rc;
     } else {
 #ifdef DEBUG_HTML
         printf("Connect Ok: %s\r\n", network->get_ip_address());
 #endif
     	return 0;
     }
+}
+
+int TS_config::disconnect()
+{
+	int rc = network->disconnect();
+
+	if (rc != 0) {
+		printf("Cannot disconnect (error code %d)\r\n", rc);
+		return rc;
+	}
+
+#ifdef DEBUG_HTML
+		printf("Disconnect Ok\r\n");
+#endif
+
+	return 0;
 }
 
 int TS_config::parcer(json_char* json_res)

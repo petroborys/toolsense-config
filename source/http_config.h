@@ -29,6 +29,7 @@ public:
 	int init();
 	int reset_nvstore();
 	int connect();
+	int disconnect();
 	int get_conf();
 	int set_key(char* alias, uint16_t key);
 	uint32_t get_value(char* alias);
