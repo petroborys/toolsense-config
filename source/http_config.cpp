@@ -79,7 +79,7 @@ int TS_config::parcer(json_char* json_res)
 						return 1;
 		}
 
-		conf_map.date.insert ( pair<string,uint32_t> (name_value,value) );
+		conf_map.date[name_value] = value;
     }
 
 	return 0;
@@ -116,7 +116,8 @@ int TS_config::set_key(char* alias, uint16_t key)
 		printf("Incorrect key (func set_key): %s - %d\r\n", alias, key);
 		return -1;
 	}
-	conf_map.nv_key.insert ( pair<string,int> (alias,key) );
+
+	conf_map.nv_key[alias] = key;
 #ifdef DEBUG_HTML
 	printf("set_key: %s - %d\r\n", alias, key);
 #endif
@@ -243,7 +244,7 @@ int TS_config::read_conf_from_flesh() {
 				return rc;
 			}
 
-		    conf_map.date.insert (pair<string,uint32_t> (it->first, data));
+		    conf_map.date[it->first] = data;
 #ifdef DEBUG_HTML
 		    printf("Get key %d. Value is %ld \r\n", key, data);
 #endif
