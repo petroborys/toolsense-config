@@ -1,6 +1,6 @@
 #include "http_config.h"
 
-#define DEBUG_HTML
+//#define DEBUG_HTML
 
 int TS_config::connect()
 {
@@ -43,16 +43,22 @@ int TS_config::parcer(json_char* json_res)
     for (int i = 0; i<length; i++) {
 
     	name_value = value_res->u.object.values[i].name;
+#ifdef DEBUG_HTML
     	printf("Name: %s\r\n", name_value);
+#endif
 
 		switch (value_res->u.object.values[i].value->type) {
 				case json_integer:
 						value = (uint32_t)value_res->u.object.values[i].value->u.integer;
+#ifdef DEBUG_HTML
 						printf("int: %d\r\n", value);
+#endif
 						break;
 				case json_boolean:
 						value = (uint32_t)value_res->u.object.values[i].value->u.boolean;
+#ifdef DEBUG_HTML
 						printf("bool: %d\r\n", value);
+#endif
 						break;
 				default:
 						printf("Parse error: incorrect type\r\n");
@@ -61,8 +67,6 @@ int TS_config::parcer(json_char* json_res)
 
 		conf_map.date.insert ( pair<string,uint32_t> (name_value,value) );
     }
-
-//    printf("length %d\r\n", length);
 
 	return 0;
 }
@@ -78,16 +82,16 @@ int TS_config::get_conf()
     get_res = get_req->send();
 
     if (!get_res) {
-#ifdef DEBUG_HTML
         printf("HttpRequest failed (error code %d)\r\n", get_req->get_error());
-#endif
         return 1;
     }
 #ifdef DEBUG_HTML
     printf("\r\nBody (%d bytes):\r\n\r\n%s\r\n", get_res->get_body_length(), get_res->get_body_as_string().c_str());
 #endif
 
-    parcer((json_char*)get_res->get_body());
+    if (parcer((json_char*)get_res->get_body()) != 0) return 1;
+
+    if (save_conf_to_flesh() != 0) return 1;
 
 	return 0;
 }
@@ -95,9 +99,7 @@ int TS_config::get_conf()
 int TS_config::set_key(char* alias, uint16_t key)
 {
 	if (key == 0) {
-#ifdef DEBUG_HTML
 		printf("Incorrect key (func set_key): %s - %d\r\n", alias, key);
-#endif
 		return -1;
 	}
 	conf_map.nv_key.insert ( pair<string,int> (alias,key) );
@@ -126,7 +128,9 @@ int TS_config::max_keys_correct() {
 	if (map_size > max_keys) {
 		if (map_size < max_possible_keys) {
 			nvstore.set_max_keys(map_size);
+#ifdef DEBUG_HTML
 			printf("NVStore new max number of keys is %d\r\n", nvstore.get_max_keys());
+#endif
 		}
 		else {
 			printf("NVStore incorrect max number of keys is %d\r\n", map_size);
@@ -142,6 +146,11 @@ int TS_config::init() {
 
 	int rc;
 	rc = nvstore.init();
+
+	if (rc != NVSTORE_SUCCESS) {
+		printf("NVStore return code is %d \r\n", rc);
+		return rc;
+	}
 
 	if (max_keys_correct() !=0) {
 		return 1;
@@ -162,7 +171,8 @@ int TS_config::init() {
     }
 #endif
 
-	return 0;
+    if (read_conf_from_flesh() == 0) return 0;
+    else return 1;
 }
 
 int TS_config::reset_nvstore() {
@@ -179,15 +189,22 @@ int TS_config::save_conf_to_flesh() {
 	if (max_keys_correct() !=0) {
 		return 1;
 	}
-
+#ifdef DEBUG_HTML
 	printf("\r\nIterator map:\r\n");
+#endif
 	for (map <string,uint32_t> ::iterator it=conf_map.date.begin(); it!=conf_map.date.end(); ++it) {
 		key = conf_map.nv_key[it->first];
 		data = it->second;
 
 		if (key != 0) {
 			rc = nvstore.set(key, sizeof(data), &data);
+			if (rc != NVSTORE_SUCCESS) {
+				printf("NVStore return code is %d \r\n", rc);
+				return rc;
+			}
+#ifdef DEBUG_HTML
 			printf("Set key %d to value %ld. \r\n", key, data);
+#endif
 		}
 	}
 
@@ -199,15 +216,23 @@ int TS_config::read_conf_from_flesh() {
 	uint32_t data;
 	uint16_t actual_len_bytes = 0;
 	int rc;
-
-	printf("\r\read map:\r\n");
+#ifdef DEBUG_HTML
+	printf("\r\nRead map:\r\n");
+#endif
 	for (map <string,uint16_t> ::iterator it=conf_map.nv_key.begin(); it!=conf_map.nv_key.end(); ++it) {
 		key = it->second;
 
 		if (key != 0) {
 		    rc = nvstore.get(key, sizeof(data), &data, actual_len_bytes);
+			if (rc != NVSTORE_SUCCESS) {
+				printf("NVStore return code is %d \r\n", rc);
+				return rc;
+			}
+
 		    conf_map.date.insert (pair<string,uint32_t> (it->first, data));
+#ifdef DEBUG_HTML
 		    printf("Get key %d. Value is %ld \r\n", key, data);
+#endif
 		}
 	}
 

@@ -23,7 +23,7 @@ private:
 	int max_keys_correct();
 
 public:
-	TS_config_map_TypeDef conf_map;
+	TS_config_map_TypeDef conf_map; //Public for dubug only
 	int sn;
 	char* server_url;
 	int init();
