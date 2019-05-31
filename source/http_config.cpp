@@ -220,6 +220,9 @@ int TS_config::save_conf_to_flesh() {
 #ifdef DEBUG_HTML
 			printf("Set key %d to value %ld. \r\n", key, data);
 #endif
+		} else {
+			printf("One or more keys is not set\r\n", it->first);
+			return 1;
 		}
 	}
 
@@ -232,8 +235,12 @@ int TS_config::read_conf_from_flesh() {
 	uint16_t actual_len_bytes = 0;
 	int rc;
 #ifdef DEBUG_HTML
-	printf("\r\nRead map:\r\n");
+	printf("Read map:\r\n");
 #endif
+	if (conf_map.nv_key.size() == 0) {
+		printf("The array of keys is empty\r\n");
+		return 1;
+	}
 	for (map <string,uint16_t> ::iterator it=conf_map.nv_key.begin(); it!=conf_map.nv_key.end(); ++it) {
 		key = it->second;
 
