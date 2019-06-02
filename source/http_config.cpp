@@ -39,11 +39,25 @@ int TS_config::disconnect()
 	return 0;
 }
 
-int TS_config::parcer(json_char* json_res)
+int TS_config::validation_config_data(json_value* value_res)
+{
+	int length = value_res->u.array.length;
+	char* name_value;
+
+    for (int i = 0; i<length; i++) {
+    	name_value = value_res->u.object.values[i].name;
+    	if (conf_map.data.count(name_value) == 0) return 1;
+
+    	if ((value_res->u.object.values[i].value->type != json_integer) && (value_res->u.object.values[i].value->type != json_boolean))
+    		return 1;
+    }
+	return 0;
+}
+
+int TS_config::parcer(HttpResponse* get_res)
 {
 	json_value* value_res;
 	char* name_value;
-
 	uint32_t value = 0;
 
 	value_res = json_parse(get_res->get_body_as_string().c_str(), get_res->get_body_length());
@@ -53,6 +67,16 @@ int TS_config::parcer(json_char* json_res)
     }
 
     int length = value_res->u.array.length;
+
+	if (conf_map.nv_key.size() != length) {
+		printf("Incorrect number of parameters\r\n");
+		return 1;
+	}
+
+	if (validation_config_data(value_res) != 0) {
+		printf("Incorrect name or type of parameter\r\n");
+		return 1;
+	}
 
     for (int i = 0; i<length; i++) {
 
@@ -79,7 +103,7 @@ int TS_config::parcer(json_char* json_res)
 						return 1;
 		}
 
-		conf_map.date[name_value] = value;
+		conf_map.data[name_value] = value;
     }
 
 	return 0;
@@ -88,6 +112,9 @@ int TS_config::parcer(json_char* json_res)
 
 int TS_config::get_conf()
 {
+	HttpRequest* get_req;
+	HttpResponse* get_res;
+
     char url_str[256];
     sprintf(url_str, "%s/%s/%d", server_url, "get_config", sn);
 
@@ -103,9 +130,23 @@ int TS_config::get_conf()
     printf("\r\nBody (%d bytes):\r\n\r\n%s\r\n", get_res->get_body_length(), get_res->get_body_as_string().c_str());
 #endif
 
-    if (parcer((json_char*)get_res->get_body()) != 0) return 1;
+    if (parcer(get_res) != 0) return 1;
 
     if (save_conf_to_flesh() != 0) return 1;
+
+    //answear to server
+
+    //    char url_ansver_str[256];
+    //    sprintf(url_ansver_str, "%s/%s", server_url, "config_ok");
+    //
+    //    get_req = new HttpRequest(network, HTTP_GET, url_ansver_str);
+    //
+    //    get_res = get_req->send();
+    //
+    //    if (!get_res) {
+    //        printf("HttpRequestanswer failed (error code %d)\r\n", get_req->get_error());
+    //        return 1;
+    //    }
 
 	return 0;
 }
@@ -118,9 +159,11 @@ int TS_config::set_key(char* alias, uint16_t key)
 	}
 
 	conf_map.nv_key[alias] = key;
+	conf_map.data[alias] = 0;
 #ifdef DEBUG_HTML
 	printf("set_key: %s - %d\r\n", alias, key);
 #endif
+
 	return 0;
 }
 
@@ -128,7 +171,7 @@ int TS_config::set_key(char* alias, uint16_t key)
 uint32_t TS_config::get_value(char* alias)
 {
 	uint32_t res = 0;
-	res = conf_map.date[alias];
+	res = conf_map.data[alias];
 #ifdef DEBUG_HTML
 	printf("get_value: %s - %d\r\n", alias, res);
 #endif
@@ -207,7 +250,7 @@ int TS_config::save_conf_to_flesh() {
 #ifdef DEBUG_HTML
 	printf("\r\nIterator map:\r\n");
 #endif
-	for (map <string,uint32_t> ::iterator it=conf_map.date.begin(); it!=conf_map.date.end(); ++it) {
+	for (map <string,uint32_t> ::iterator it=conf_map.data.begin(); it!=conf_map.data.end(); ++it) {
 		key = conf_map.nv_key[it->first];
 		data = it->second;
 
@@ -251,7 +294,7 @@ int TS_config::read_conf_from_flesh() {
 				return rc;
 			}
 
-		    conf_map.date[it->first] = data;
+		    conf_map.data[it->first] = data;
 #ifdef DEBUG_HTML
 		    printf("Get key %d. Value is %ld \r\n", key, data);
 #endif

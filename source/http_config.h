@@ -6,7 +6,7 @@
 
 typedef struct {
 	map <string,uint16_t>  nv_key;
-	map <string,uint32_t> date;
+	map <string,uint32_t> data;
 } TS_config_map_TypeDef;
 
 namespace mbed {
@@ -15,12 +15,11 @@ class TS_config {
 
 private:
 	NetworkInterface* network;
-	HttpRequest* get_req;
-	HttpResponse* get_res;
 //	TS_config_map_TypeDef conf_map;
-	int parcer(json_char* json_res);
+	int parcer(HttpResponse* get_res);
 	NVStore &nvstore = NVStore::get_instance();
 	int max_keys_correct();
+	int validation_config_data(json_value* value_res);
 
 public:
 	TS_config_map_TypeDef conf_map; //Public for dubug only
