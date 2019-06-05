@@ -2,41 +2,30 @@
 
 #define DEBUG_HTML
 
-int TS_config::connect()
+nsapi_error_t TS_config::connect()
 {
-#ifdef DEBUG_HTML
-	printf("Starting connection...\r\n");
-#endif
 
 	network = NetworkInterface::get_default_instance();
+	nsapi_error_t rc = network->connect();
 
-    int rc = network->connect();
-
-    if (rc != 0) {
-        printf("Cannot connect to the network (error code %d)\r\n", rc);
-        return rc;
-    } else {
 #ifdef DEBUG_HTML
-        printf("Connect Ok: %s\r\n", network->get_ip_address());
+    if (rc != NSAPI_ERROR_OK) printf("Cannot connect to the network (error code %d)\r\n", rc);
+    else printf("Connect Ok: %s\r\n", network->get_ip_address());
 #endif
-    	return 0;
-    }
+
+    return rc;
 }
 
-int TS_config::disconnect()
+nsapi_error_t TS_config::disconnect()
 {
-	int rc = network->disconnect();
-
-	if (rc != 0) {
-		printf("Cannot disconnect (error code %d)\r\n", rc);
-		return rc;
-	}
+	nsapi_error_t rc = network->disconnect();
 
 #ifdef DEBUG_HTML
-		printf("Disconnect Ok\r\n");
+	if (rc != NSAPI_ERROR_OK)printf("Cannot disconnect (error code %d)\r\n", rc);
+	else printf("Disconnect Ok\r\n");
 #endif
 
-	return 0;
+	return rc;
 }
 
 int TS_config::validation_config_data(json_value* value_res)
@@ -46,36 +35,45 @@ int TS_config::validation_config_data(json_value* value_res)
 
     for (int i = 0; i<length; i++) {
     	name_value = value_res->u.object.values[i].name;
-    	if (conf_map.data.count(name_value) == 0) return 1;
+    	if (conf_map.data.count(name_value) == 0) return TS_HTTP_ERROR_UNSET_DATA_NAME;
 
     	if ((value_res->u.object.values[i].value->type != json_integer) && (value_res->u.object.values[i].value->type != json_boolean))
-    		return 1;
+    		return TS_HTTP_ERROR_WRONG_DATA_TYPE;
     }
-	return 0;
+
+	return TS_HTTP_ERROR_OK;
 }
+
 
 int TS_config::parcer(HttpResponse* get_res)
 {
 	json_value* value_res;
 	char* name_value;
 	uint32_t value = 0;
+	int rc;
 
 	value_res = json_parse(get_res->get_body_as_string().c_str(), get_res->get_body_length());
 
     if (value_res == NULL) {
-            return 1;
+            return TS_HTTP_ERROR_NO_DATA;
     }
 
     int length = value_res->u.array.length;
 
 	if (conf_map.nv_key.size() != length) {
-		printf("Incorrect number of parameters\r\n");
-		return 1;
+#ifdef DEBUG_HTML
+		printf("Wrong number of parameters\r\n");
+#endif
+		return TS_HTTP_ERROR_WRONG_LENGHT_DATA;
 	}
 
-	if (validation_config_data(value_res) != 0) {
-		printf("Incorrect name or type of parameter\r\n");
-		return 1;
+	rc = validation_config_data(value_res);
+
+	if (rc != TS_HTTP_ERROR_OK) {
+#ifdef DEBUG_HTML
+		printf("Wrong name or type of parameter\r\n");
+#endif
+		return rc;
 	}
 
     for (int i = 0; i<length; i++) {
@@ -99,14 +97,16 @@ int TS_config::parcer(HttpResponse* get_res)
 #endif
 						break;
 				default:
-						printf("Parse error: incorrect type\r\n");
-						return 1;
+#ifdef DEBUG_HTML
+						printf("Parse error: wrong type\r\n");
+#endif
+						return TS_HTTP_ERROR_WRONG_DATA_TYPE;
 		}
 
 		conf_map.data[name_value] = value;
     }
 
-	return 0;
+	return TS_HTTP_ERROR_OK;
 }
 
 
@@ -114,6 +114,8 @@ int TS_config::get_conf()
 {
 	HttpRequest* get_req;
 	HttpResponse* get_res;
+
+	int rc;
 
     char url_str[256];
     sprintf(url_str, "%s/%s/%d", server_url, "get_config", sn);
@@ -123,39 +125,56 @@ int TS_config::get_conf()
     get_res = get_req->send();
 
     if (!get_res) {
+#ifdef DEBUG_HTML
         printf("HttpRequest failed (error code %d)\r\n", get_req->get_error());
-        return 1;
+#endif
+        delete get_req;
+        return TS_HTTP_ERROR_REQUEST_FAIL;
     }
+
 #ifdef DEBUG_HTML
     printf("\r\nBody (%d bytes):\r\n\r\n%s\r\n", get_res->get_body_length(), get_res->get_body_as_string().c_str());
 #endif
 
-    if (parcer(get_res) != 0) return 1;
+    rc = parcer(get_res);
+//    delete get_req;
+    if (rc != TS_HTTP_ERROR_OK) return rc;
 
-    if (save_conf_to_flesh() != 0) return 1;
-
-    //answear to server
-
-    //    char url_ansver_str[256];
-    //    sprintf(url_ansver_str, "%s/%s", server_url, "config_ok");
-    //
-    //    get_req = new HttpRequest(network, HTTP_GET, url_ansver_str);
-    //
-    //    get_res = get_req->send();
-    //
-    //    if (!get_res) {
-    //        printf("HttpRequestanswer failed (error code %d)\r\n", get_req->get_error());
-    //        return 1;
-    //    }
-
-	return 0;
+    rc = save_conf_to_flesh();
+    return rc;
 }
 
-int TS_config::set_key(char* alias, uint16_t key)
+int TS_config::send_verification(int code)
+{
+	HttpRequest* get_req;
+	HttpResponse* get_res;
+
+    char url_str[256];
+    sprintf(url_str, "%s/%s/%d", server_url, "config_verification", code);
+
+    get_req = new HttpRequest(network, HTTP_GET, url_str);
+
+    get_res = get_req->send();
+
+    if (!get_res) {
+#ifdef DEBUG_HTML
+        printf("HttpRequest failed (error code %d)\r\n", get_req->get_error());
+#endif
+        delete get_req;
+        return TS_HTTP_ERROR_REQUEST_FAIL;
+    }
+
+    delete get_req;
+	return TS_HTTP_ERROR_OK;
+}
+
+int TS_config::init_conf_pair(char* alias, uint16_t key)
 {
 	if (key == 0) {
-		printf("Incorrect key (func set_key): %s - %d\r\n", alias, key);
-		return -1;
+#ifdef DEBUG_HTML
+		printf("Wrong key (func set_key): %s - %d\r\n", alias, key);
+#endif
+		return TS_HTTP_ERROR_WRONG_KEY;
 	}
 
 	conf_map.nv_key[alias] = key;
@@ -164,7 +183,7 @@ int TS_config::set_key(char* alias, uint16_t key)
 	printf("set_key: %s - %d\r\n", alias, key);
 #endif
 
-	return 0;
+	return TS_HTTP_ERROR_OK;
 }
 
 
@@ -178,7 +197,8 @@ uint32_t TS_config::get_value(char* alias)
 	return res;
 }
 
-int TS_config::max_keys_correct() {
+int TS_config::max_keys_correct()
+{
 	size_t map_size = conf_map.nv_key.size();
 	size_t max_keys = nvstore.get_max_keys();
 	size_t max_possible_keys = nvstore.get_max_possible_keys();
@@ -191,28 +211,31 @@ int TS_config::max_keys_correct() {
 #endif
 		}
 		else {
-			printf("NVStore incorrect max number of keys is %d\r\n", map_size);
-			return 1;
+#ifdef DEBUG_HTML
+			printf("NVStore wrong max number of keys is %d\r\n", map_size);
+#endif
+			return TS_HTTP_ERROR_TOO_MUCH_KEYS;
 		}
 	}
 
-	return 0;
+	return TS_HTTP_ERROR_OK;
 }
 
 
-int TS_config::init() {
-
+int TS_config::init()
+{
 	int rc;
 	rc = nvstore.init();
 
 	if (rc != NVSTORE_SUCCESS) {
+#ifdef DEBUG_HTML
 		printf("NVStore return code is %d \r\n", rc);
+#endif
 		return rc;
 	}
 
-	if (max_keys_correct() !=0) {
-		return 1;
-	}
+	rc = max_keys_correct();
+	if (rc !=TS_HTTP_ERROR_OK) return rc;
 
 #ifdef DEBUG_HTML
 	printf("Init NVStore.\r\n");
@@ -229,24 +252,26 @@ int TS_config::init() {
     }
 #endif
 
-    if (read_conf_from_flesh() == 0) return 0;
-    else return 1;
+    rc = read_conf_from_flesh();
+    return rc;
 }
 
-int TS_config::reset_nvstore() {
 
-	int rc;
-	rc = nvstore.reset();
+int TS_config::reset_nvstore()
+{
+	int rc = nvstore.reset();
 	return rc;
 }
 
-int TS_config::save_conf_to_flesh() {
+
+int TS_config::save_conf_to_flesh()
+{
 	uint16_t key;
 	uint32_t data;
-	int rc;
-	if (max_keys_correct() !=0) {
-		return 1;
-	}
+
+	int rc = max_keys_correct();
+	if (rc !=0) return rc;
+
 #ifdef DEBUG_HTML
 	printf("\r\nIterator map:\r\n");
 #endif
@@ -254,25 +279,25 @@ int TS_config::save_conf_to_flesh() {
 		key = conf_map.nv_key[it->first];
 		data = it->second;
 
-		if (key != 0) {
-			rc = nvstore.set(key, sizeof(data), &data);
-			if (rc != NVSTORE_SUCCESS) {
-				printf("NVStore return code is %d \r\n", rc);
-				return rc;
-			}
+
+		rc = nvstore.set(key, sizeof(data), &data);
+		if (rc != NVSTORE_SUCCESS) {
 #ifdef DEBUG_HTML
-			printf("Set key %d to value %ld. \r\n", key, data);
+			printf("NVStore return code is %d \r\n", rc);
 #endif
-		} else {
-			printf("One or more keys is not set\r\n", it->first);
-			return 1;
+			return rc;
 		}
+#ifdef DEBUG_HTML
+		printf("Set key %d to value %ld. \r\n", key, data);
+#endif
 	}
 
-	return 0;
+	return TS_HTTP_ERROR_OK;
 }
 
-int TS_config::read_conf_from_flesh() {
+
+int TS_config::read_conf_from_flesh()
+{
 	uint16_t key;
 	uint32_t data;
 	uint16_t actual_len_bytes = 0;
@@ -281,25 +306,27 @@ int TS_config::read_conf_from_flesh() {
 	printf("Read map:\r\n");
 #endif
 	if (conf_map.nv_key.size() == 0) {
+#ifdef DEBUG_HTML
 		printf("The array of keys is empty\r\n");
-		return 1;
+#endif
+		return TS_HTTP_ERROR_NO_SET_DATA;
 	}
 	for (map <string,uint16_t> ::iterator it=conf_map.nv_key.begin(); it!=conf_map.nv_key.end(); ++it) {
 		key = it->second;
 
-		if (key != 0) {
-		    rc = nvstore.get(key, sizeof(data), &data, actual_len_bytes);
-			if (rc != NVSTORE_SUCCESS) {
-				printf("NVStore return code is %d \r\n", rc);
-				return rc;
-			}
-
-		    conf_map.data[it->first] = data;
+		rc = nvstore.get(key, sizeof(data), &data, actual_len_bytes);
+		if (rc != NVSTORE_SUCCESS) {
 #ifdef DEBUG_HTML
-		    printf("Get key %d. Value is %ld \r\n", key, data);
+			printf("NVStore return code is %d \r\n", rc);
 #endif
+			return rc;
 		}
+
+		conf_map.data[it->first] = data;
+#ifdef DEBUG_HTML
+		printf("Get key %d. Value is %ld \r\n", key, data);
+#endif
 	}
 
-	return 0;
+	return TS_HTTP_ERROR_OK;
 }
